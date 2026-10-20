@@ -145,3 +145,37 @@ def umeyama_similarity(src: np.ndarray, dst: np.ndarray):
     s = np.trace(np.diag(sig) @ E) / var_s
     t = mu_d - s * R @ mu_s
     return s, R, t
+
+
+# ---------------------------------------------------------------------------
+# Projection with analytic Jacobians (shared by PnP refinement and BA)
+# ---------------------------------------------------------------------------
+def project_with_jacobians(K: np.ndarray, R: np.ndarray, t: np.ndarray, X: np.ndarray):
+    """u = pi(K (R X + t)).
+
+    Pose update is parametrized in so(3) on the LEFT:
+        R <- exp([d_w]x) R,  t <- t + d_t
+    so that d(X_c)/d(d_w) = -[R X]x  and  d(X_c)/d(d_t) = I.
+
+    Returns uv (N,2), J_pose (N,2,6) wrt (d_w, d_t), J_X (N,2,3).
+    """
+    RX = X @ R.T
+    Xc = RX + t.reshape(1, 3)
+    x, y, z = Xc[:, 0], Xc[:, 1], Xc[:, 2]
+    fx, fy, s = K[0, 0], K[1, 1], K[0, 1]
+    uv = np.column_stack([fx * x / z + s * y / z + K[0, 2], fy * y / z + K[1, 2]])
+    # d uv / d Xc   (N,2,3)
+    Jp = np.zeros((len(X), 2, 3))
+    Jp[:, 0, 0] = fx / z
+    Jp[:, 0, 1] = s / z
+    Jp[:, 0, 2] = -(fx * x + s * y) / z**2
+    Jp[:, 1, 1] = fy / z
+    Jp[:, 1, 2] = -fy * y / z**2
+    # d Xc / d d_w = -[RX]x  (N,3,3)
+    S = np.zeros((len(X), 3, 3))
+    S[:, 0, 1], S[:, 0, 2] = RX[:, 2], -RX[:, 1]
+    S[:, 1, 0], S[:, 1, 2] = -RX[:, 2], RX[:, 0]
+    S[:, 2, 0], S[:, 2, 1] = RX[:, 1], -RX[:, 0]
+    J_pose = np.concatenate([Jp @ S, Jp], axis=2)
+    J_X = Jp @ R
+    return uv, J_pose, J_X

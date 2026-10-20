@@ -25,15 +25,15 @@ OpenCV is used only for image I/O, SIFT features, and as a **baseline** for comp
 | RMS reprojection error after BA | **0.247 px** |
 | Camera rotation error vs. ground truth (median / max) | **0.037° / 0.052°** |
 | Camera centre error vs. ground truth (median / max) | 0.03% / 0.05% of scene size |
-| Relative pose, 51 pairs, median rotation / translation-direction error | ours **0.051° / 0.13°**, OpenCV 5-point 0.23° / 0.26° |
-| BA from a perturbed start (RMS 32.5 px), 86k unknowns | our LM + Schur: 10 iterations, 5.3 s; scipy sparse TRF: 25.5 s, same minimum |
-| Run time | SIFT + all-pairs matching 174 s, SfM 52 s (images at 1536×1024) |
+| Relative pose, 51 pairs, median rotation / translation-direction error | ours **0.051° / 0.13°**, OpenCV 5-point 0.23° / 0.26° (but ours has a heavier tail: >1° on 8 wide-baseline pairs vs 3 for OpenCV) |
+| BA from a perturbed start (RMS 32.5 px), 86k unknowns | our LM + Schur: 10 iterations, ~5 s; scipy sparse TRF: 11–25 s, same minimum |
+| Run time | SIFT + all-pairs matching 174 s, SfM 50–70 s (images at 1536×1024) |
 
 Robustness:
 - Least squares fails at 10% wrong matches (rotation error 28°).
-- RANSAC / MSAC / LO-RANSAC stay at ~0.1–0.2° up to 60% outliers.
+- RANSAC / MSAC / LO-RANSAC stay at ~0.1–0.23° up to 60% outliers.
 - At 70%, the 20,000-iteration budget is too small (≈105,000 needed for s = 8), which is the practical breakdown point.
-- In BA, 5% gross errors raise the camera rotation error from 0.05° to 1.06° with L2; with a Cauchy loss it stays at 0.05–0.08° up to 50%.
+- In BA, 5% gross errors raise the camera rotation error from 0.05° to 1.06° with L2; with a Cauchy loss it stays at 0.045–0.079° up to 50%.
 
 ## Pipeline
 

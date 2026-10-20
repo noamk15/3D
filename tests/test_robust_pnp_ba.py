@@ -121,3 +121,26 @@ def test_incremental_sfm_synthetic():
         Rrel = Rv @ rec.poses[views[0]][0].T
         Rrel_gt = s.Rs[v] @ s.Rs[views[0]].T
         assert rotation_error_deg(Rrel, Rrel_gt) < 0.3
+
+
+# ---------------- analytic Jacobians vs. finite differences ----------------
+def test_projection_jacobians_finite_differences():
+    from sfm.geometry import project_with_jacobians, project, random_rotation
+    rng = np.random.default_rng(17)
+    K = np.array([[800.0, 0, 500], [0, 810, 380], [0, 0, 1]])
+    R = random_rotation(rng)
+    t = np.array([0.1, 0.2, 6.0])
+    X = rng.normal(size=(20, 3))
+    uv, Jp, Jx = project_with_jacobians(K, R, t, X)
+    eps = 1e-6
+    for k in range(6):
+        d = np.zeros(6)
+        d[k] = eps
+        num = (project(K, so3_exp(d[:3]) @ R, t + d[3:], X)
+               - project(K, so3_exp(-d[:3]) @ R, t - d[3:], X)) / (2 * eps)
+        assert np.allclose(num, Jp[:, :, k], rtol=1e-5, atol=1e-4)
+    for k in range(3):
+        d = np.zeros(3)
+        d[k] = eps
+        num = (project(K, R, t, X + d) - project(K, R, t, X - d)) / (2 * eps)
+        assert np.allclose(num, Jx[:, :, k], rtol=1e-5, atol=1e-4)

@@ -69,7 +69,7 @@ Problème : en pixels, une ligne de A contient à la fois des termes en `u·u' �
 
 ### Questions que Werman pourrait poser
 
-- **« Pourquoi x₂ᵀFx₁ = 0 ? Que représente F géométriquement ? »** F envoie un point de l'image 1 sur sa droite épipolaire dans l'image 2. e₁ est le noyau de F (F e₁ = 0) et e₂ le noyau de Fᵀ. Ce sont les images des centres optiques.
+- **« Pourquoi x₂ᵀFx₁ = 0 ? Que représente F géométriquement ? »** F envoie un point de l'image 1 sur sa droite épipolaire dans l'image 2. e₁ est le noyau de F (F e₁ = 0) et e₂ le noyau de Fᵀ. e₁ est l'image du centre de la caméra 2 dans l'image 1, et e₂ l'image du centre de la caméra 1 dans l'image 2.
 - **« Pourquoi normaliser ? »** Pour le conditionnement : on mesure 1,6·10⁵ contre 6. L'erreur algébrique minimisée dépend du repère ; après normalisation, toutes les coordonnées pèsent pareil. À σ = 1 px, l'erreur de rotation passe de 2,05° à 0,42°.
 - **« Pourquoi imposer le rang 2, et comment ? »** Sans ça, les droites épipolaires ne se coupent pas en un point et il n'y a pas d'épipole. On met σ₃ à 0 dans la SVD : c'est la projection de Frobenius la plus proche (Eckart–Young).
 - **« Que se passe-t-il si tous les points sont coplanaires ? »** Voir la brique 3 / dégénérescences : l'espace nul de A devient de dimension 3, donc F n'est pas unique.
@@ -111,7 +111,7 @@ Une seule de ces 4 configurations met les points **devant les deux caméras**. C
 
 **Correctness.**
 - [t]ₓ is skew-symmetric with t in its null space. Hartley–Zisserman (Result 9.18–9.19) shows that every factorization E = SR, with S skew-symmetric and R a rotation, is one of these four (S = U Z Uᵀ, with Z = [[0,1,0],[−1,0,0],[0,0,0]]).
-- The two rotations differ by a 180° rotation about the baseline. The two signs of t correspond to swapping which camera is "in front".
+- The two rotations differ by a 180° rotation about the baseline. Flipping the sign of t reverses the baseline direction: the reconstructed point then lies behind both cameras (HZ Fig. 9.12).
 - Exactly one of the four configurations puts a generic point in front of both cameras. The other three put it behind one or both. Counting over all points makes this robust to noise.
 
 **Runtime.** One 3×3 SVD, plus 4 triangulations of N points: O(N).
@@ -123,7 +123,12 @@ Une seule de ces 4 configurations met les points **devant les deux caméras**. C
 - Sans bruit, la bonne solution a 100 % des points devant les deux caméras, et l'erreur de rotation est inférieure à 10⁻⁶ degré.
 - Sur les 51 paires vérifiées de fountain-P11, l'erreur médiane de pose relative est de **0,051° en rotation** et **0,13° sur la direction de t**.
 - La baseline OpenCV (`findEssentialMat`, 5 points + RANSAC, sans ré-estimation sur les inliers) donne **0,23°** et **0,26°**.
-- Notre version est plus précise parce qu'elle refait les moindres carrés sur tous les inliers. Elle est aussi plus lente : 61 ms contre 10 ms en médiane, car OpenCV est en C++ et son 5 points demande moins d'itérations.
+- **Attention à la queue de distribution.** La médiane nous est favorable, mais notre méthode est moins bonne qu'OpenCV sur 10 paires sur 51. Elle dépasse 1° sur 8 paires, contre 3 pour OpenCV, et la moyenne est de 0,73° contre 0,36°.
+  - Les mauvaises paires impliquent presque toutes la vue 10 : grande baseline, peu de matches (par exemple (3,10) avec 109 matches, (2,10) avec 46). Le pire cas est (5,10) : 13° contre 0,11°.
+  - Hypothèse (non vérifiée par une expérience dédiée) : le 8 points estime F (7 ddl, sans utiliser K). Il est donc plus sensible au bruit et à une scène en partie plane (la façade) que le 5 points calibré (5 ddl), quand il y a peu de matches.
+  - J'ai vérifié une corrélation avec la planarité : elle n'est que faible (fraction d'inliers d'une homographie, corrélation ≈ −0,3 avec le log de l'erreur).
+  - Ce n'est pas bloquant pour le pipeline, qui choisit la paire initiale (5,6) avec beaucoup de matches, puis place les autres vues par PnP et non par paires.
+- Notre version est plus lente : 61 ms contre 10 ms en médiane (OpenCV est en C++ et son 5 points demande moins d'itérations).
 - Voir `experiments/out/fountain_summary.json`.
 
 ### Questions que Werman pourrait poser
@@ -170,7 +175,7 @@ Pour une stéréo rectifiée, Z = f b / d, où d est la disparité. Donc δZ ≈
 
 **Correctness.**
 - Noise-free, X is in the null space of A, so DLT is exact (test: error below 10⁻⁸).
-- The GN refinement only accepts descent on the geometric cost, which is the maximum-likelihood estimate under i.i.d. Gaussian pixel noise.
+- The GN refinement minimizes the geometric (reprojection) cost, which gives the maximum-likelihood estimate under i.i.d. Gaussian pixel noise. A per-point descent check keeps a GN step only where it lowers that point's cost.
 
 **Runtime.** O(N·V) for N points and V views. Each point costs a 2V×4 SVD plus a few 3×3 solves.
 
@@ -206,7 +211,7 @@ On voit bien la loi en 1/b.
 
 ### Intuition
 
-Les moindres carrés donnent un **poids infini** aux points loin du modèle : un seul faux match peut tirer F n'importe où. Leur breakdown point est **0**.
+Dans les moindres carrés, l'influence d'un point (ψ(r) = r) **croît sans borne** avec son résidu : un seul faux match peut tirer F n'importe où. Leur breakdown point est **0**.
 
 **RANSAC** inverse la logique. On tire un petit échantillon (8 points), on calcule F, puis on **compte qui est d'accord** avec elle. On garde la F qui a le plus large consensus, et on la ré-estime sur tous ses inliers.
 
@@ -235,7 +240,7 @@ L'**erreur de Sampson** est une approximation au premier ordre de la vraie dista
 - Repeat the following:
   1. Sample s = 8 matches and fit F (normalized 8-point).
   2. Compute the squared Sampson errors eᵢ².
-  3. Score the model. RANSAC: #{eᵢ² < T²}. MSAC: −Σ min(eᵢ², T²). LO: MSAC, plus re-fitting each new best model on its inliers until the score stops improving.
+  3. Score the model. RANSAC: #{eᵢ² < T²}. MSAC: −Σ min(eᵢ², T²). LO: MSAC, plus re-fitting each new best model on its inliers while the score improves (at most 5 times).
   4. When a new best model appears, set w = its inlier ratio and update N = log(1−p)/log(1−w⁸).
 - Stop at N iterations (cap 20 000).
 - Finally re-fit F on all inliers, re-classify, and repeat once.
@@ -278,16 +283,18 @@ Voir `figures/two_view_outliers_synthetic.png` et `figures/two_view_outliers_fou
 Lecture des tableaux :
 - **Moindres carrés** : ils cassent dès **10 %** d'outliers (28° d'erreur en synthétique). Breakdown point de 0, comme prévu.
 - **Variantes RANSAC** : précision quasi constante jusqu'à 50–60 %.
-- **À 70 %** : w = 0,3, donc N = log(0,001)/log(1 − 0,3⁸) ≈ **105 000** itérations seraient nécessaires. Notre plafond est 20 000 (atteint en médiane dès 60 %), donc le taux de succès chute. C'est le **point de rupture pratique**. Il ne vient pas de la statistique ; il vient du budget de calcul, qui explose en w⁻⁸.
-- **Itérations RANSAC en médiane** (synthétique) : 50, 50, 97, 205, 767, 3208, 20 000, 20 000 pour 0 → 70 %. Temps LO : 23 ms à 0 %, 0,47 s à 50 %, 5,6 s à 70 %.
+- **À 70 %** : w = 0,3, donc N = log(0,001)/log(1 − 0,3⁸) ≈ **105 000** itérations seraient nécessaires. Notre plafond est 20 000 (atteint en médiane dès 60 % pour RANSAC et MSAC en synthétique ; LO en fait environ 10 200 à 60 %), donc le taux de succès chute. C'est le **point de rupture pratique**. Il ne vient pas de la statistique ; il vient du budget de calcul, qui explose en w⁻⁸.
+- **Itérations RANSAC en médiane** (synthétique) : 50, 50, 98, 206, 768, 3208, 20 000, 20 000 pour 0 → 70 %. Le « 50 » vient d'un minimum de 50 itérations imposé dans le code (`min_iters`), par sécurité quand w est estimé à partir de très peu de tirages ; la formule seule en donnerait moins. Temps LO : 23 ms à 0 %, 0,47 s à 50 %, 5,6 s à 70 %.
 - **LO-RANSAC** : il gagne nettement en synthétique à 70 % (70 % de succès contre 57 %). Sur la paire réelle, la différence entre variantes est dans le bruit (15 tirages seulement). Je ne prétends pas que LO soit toujours meilleur.
 
 ### Questions que Werman pourrait poser
 
-- **« Pourquoi RANSAC plutôt que les moindres carrés ? »** Le breakdown point des moindres carrés est 0 : une fraction 1/n d'outliers suffit à les rendre arbitrairement faux. Mesuré : avec 10 % de faux matches, l'erreur de rotation est déjà de plusieurs dizaines de degrés.
+- **« Pourquoi RANSAC plutôt que les moindres carrés ? »** Le breakdown point des moindres carrés est 0 : une fraction 1/n d'outliers suffit à les rendre arbitrairement faux. Mesuré : avec 10 % de faux matches, l'erreur de rotation passe à 28° (synthétique) et 9,5° (paire réelle).
 - **« Quel est le breakdown point de RANSAC ? »** Il n'a pas de breakdown point formel à 50 % comme la médiane. Il fonctionne tant que les inliers forment le **plus grand ensemble cohérent** et que N tirages suffisent. En pratique, la limite est le coût : avec w = 0,3 et s = 8, il faut environ 105 000 itérations pour p = 0,999. D'où l'intérêt des solveurs minimaux (7 points, 5 points) et du *guided sampling*.
 - **« Pourquoi Sampson plutôt que l'erreur algébrique ? »** Sampson est géométrique (en pixels), invariant à l'échelle de F, et donne un seuil interprétable via le χ².
-- **« Comment choisis-tu le seuil ? »** Avec le χ² à 1 ddl : T² = 3,84σ². On a σ ≈ 0,5 px (SIFT sous-pixel), d'où T = 1–1,5 px.
+- **« Comment choisis-tu le seuil ? »** Avec le χ² à 1 ddl (distance à la droite épipolaire) : T² = 3,84σ², soit T ≈ 1,96σ.
+  - σ = 0,5 px donne T ≈ 1 px (utilisé pour la comparaison avec OpenCV). T = 1,5 px (matching, robustesse, paire initiale) correspond à σ ≈ 0,77 px, une marge prudente pour SIFT.
+  - Pour PnP, le résidu est 2D (2 ddl), donc T² = 5,99σ². T = 3 px correspond à σ ≈ 1,2 px : c'est plus large exprès, car les points 3D sont eux-mêmes bruités.
 - **« Pourquoi ré-estimer après RANSAC ? »** Le modèle ne vient que de 8 points, donc il est bruité. Les moindres carrés sur des centaines d'inliers réduisent la variance. LO-RANSAC fait ça pendant la recherche, ce qui améliore aussi le choix du consensus.
 - **« Et les M-estimateurs ? »** Voir la brique 7 (Huber, Cauchy dans le BA). Ils supposent une bonne initialisation, alors que RANSAC n'en a pas besoin. Les deux sont complémentaires : RANSAC pour démarrer, une perte robuste pour raffiner.
 
@@ -336,18 +343,39 @@ La pose a 6 ddl et chaque point donne 2 équations, donc **3 points** au minimum
 
 ### Ce qu'on a mesuré
 
-- **Synthétique** (6 vues, σ = 0,5 px) : toutes les vues sont enregistrées. Erreur de position des centres après alignement < 0,05 unités, erreur de rotation relative < 0,3°.
+- **Synthétique** (6 vues, σ = 0,5 px) : toutes les vues sont enregistrées. Le test vérifie que l'erreur de position des centres après alignement est < 0,05 unités et l'erreur de rotation relative < 0,3° (bornes d'assertion, pas des valeurs mesurées).
 - **fountain-P11** (images à 1536×1024, SIFT : 12 600 à 15 600 points par image) :
   - 51 paires vérifiées, les **11 vues** enregistrées, **28 687 points**, 101 601 observations, **RMS de reprojection 0,247 px**.
   - Par rapport à la vérité terrain, après alignement par similitude : erreur de rotation médiane **0,037°** (max 0,052°), erreur de position des centres médiane **0,03 %** de la taille de la scène (max 0,05 %).
-  - Temps : 52 s pour le SfM, 174 s pour SIFT + matching de toutes les paires.
-  - Initialisation sur la paire (5,6), puis ordre d'ajout 4, 3, 2, 1, 7, 0, 8, 9, 10. PnP garde chaque fois environ 98–99 % d'inliers.
+  - Temps : environ 50–70 s pour le SfM selon la charge de la machine, 174 s pour SIFT + matching de toutes les paires.
+  - Initialisation sur la paire (5,6), puis ordre d'ajout 4, 3, 2, 1, 7, 0, 8, 9, 10. PnP garde chaque fois 97,6–99,2 % d'inliers.
 
 ### Questions que Werman pourrait poser
 
 - **« Pourquoi choisir la paire initiale avec une grande baseline ? »** Une petite baseline donne une triangulation instable (brique 3), et toute l'erreur se propage aux vues suivantes.
 - **« Que se passe-t-il si une vue est mal placée ? »** L'erreur se propage : c'est la **dérive** de l'incrémental. On la limite par des BA fréquents et des pertes robustes. Une alternative est le SfM global (rotation averaging), en extension.
 - **« Pourquoi ne pas utiliser OpenCV solvePnP ? »** Le cœur doit être écrit à la main. OpenCV ne sert que de baseline de comparaison.
+
+---
+
+## Brique 6 — Données réelles : SIFT, ratio test, vérification géométrique
+
+### Intuition
+
+SIFT trouve des points distinctifs et les décrit par un vecteur de 128 nombres (histogrammes de gradients), invariant à l'échelle et à la rotation. Pour apparier deux images, on cherche le plus proche voisin de chaque descripteur.
+
+Problème : sur une façade répétitive, un descripteur peut avoir **deux** voisins presque aussi proches. Le match est alors ambigu.
+
+On applique trois filtres :
+- Le **ratio test de Lowe** garde un match seulement si le meilleur voisin est nettement meilleur que le deuxième (d₁/d₂ < 0,8).
+- Une **vérification croisée** : le match doit être réciproque.
+- **Notre F-RANSAC** élimine ce qui reste d'incohérent avec la géométrie épipolaire.
+
+### Questions que Werman pourrait poser
+
+- **« Pourquoi 0,8 ? »** C'est la valeur de Lowe (2004) : elle élimine environ 90 % des faux matches pour environ 5 % des vrais perdus, sur sa base de test. Ce n'est pas un théorème : c'est un réglage empirique.
+- **« Le ratio test suffit-il ? »** Non. Il élimine les ambiguïtés, pas les erreurs cohérentes visuellement mais fausses géométriquement. C'est RANSAC qui les élimine.
+- **« Pourquoi FLANN ? »** Avec environ 15 000 descripteurs par image et 55 paires, la force brute prenait plus de 25 minutes. Les kd-trees randomisés (approximatifs) ramènent ça à environ 3 minutes. Une approximation sur quelques voisins est sans conséquence, puisque RANSAC filtre derrière.
 
 ---
 
@@ -369,7 +397,7 @@ C'est non linéaire pour deux raisons : la division par la profondeur, et la rot
 
 <details><summary>Réponses</summary>
 
-1. **7** ddl : 3 de rotation, 3 de translation, 1 d'échelle. Une similitude globale ne change aucune reprojection. Sans jauge fixée, JᵀJ est singulière (noyau de dimension 7) et le solveur dérive dans ces directions. On fixe la caméra 0 (6 ddl) et une coordonnée de translation d'une autre caméra (l'échelle).
+1. **7** ddl : 3 de rotation, 3 de translation, 1 d'échelle. Une similitude globale ne change aucune reprojection. Sans jauge fixée, JᵀJ est singulière (noyau de dimension 7) et le solveur dérive dans ces directions. On fixe une caméra (6 ddl) et une coordonnée de translation d'une autre caméra (l'échelle). Dans le pipeline, la caméra fixée est la première de la paire initiale (la vue 5 sur fountain).
 2. Avec 9 entrées, il y a 6 contraintes RᵀR = I à maintenir, et R sort de SO(3). Les angles d'Euler ont des singularités (blocage de cardan). L'incrément δω ∈ ℝ³ est minimal, sans contrainte, et R ← exp([δω]ₓ)R reste exactement dans SO(3). Localement, la paramétrisation est régulière.
 </details>
 
@@ -391,16 +419,16 @@ C'est non linéaire pour deux raisons : la division par la profondeur, et la rot
 
 **Correctness.**
 - Block elimination is exact: the Schur step equals the step of the full system. This is checked numerically by `test_schur_step_equals_full_step`.
-- LM with gain-ratio control decreases the cost monotonically.
+- LM with accept-if-decrease control (λ /= 3 on success, λ *= 5 on failure) decreases the cost monotonically by construction.
 - IRLS is a valid majorize-minimize scheme for the Huber and Cauchy costs: each weighted least-squares step decreases the robust cost.
-- The analytic Jacobians are checked against finite differences.
+- The analytic Jacobians are checked against central finite differences (`test_projection_jacobians_finite_differences`).
 
 **Runtime.**
 - Building the blocks: O(M) for M observations.
 - Inverting V: O(n_p) (one 3×3 per point).
-- Forming S: O(Σ_p m_p²·36), where m_p = track length.
+- Forming S: as implemented, each point's block W_p is stored densely (6n_c × 3), so this costs O(n_p·n_c²). A fully sparse implementation would cost O(Σ_p m_p²), where m_p = track length.
 - Solving: O(n_c³).
-- Total: **O(M + n_c³)**, compared with O((6n_c + 3n_p)³) for the full system.
+- Total: **O(M + n_p·n_c² + n_c³)**, still linear in the number of points, compared with O((6n_c + 3n_p)³) for the full system.
 
 **Conclusion.** BA computes the maximum-likelihood estimate of all cameras and points under Gaussian pixel noise (or a robust M-estimate with Huber/Cauchy). The Schur trick makes it linear in the number of points. *Confidence: 92%.*
 
@@ -408,9 +436,9 @@ C'est non linéaire pour deux raisons : la division par la profondeur, et la rot
 
 **Convergence sur fountain-P11** (`figures/ba_convergence_fountain.png`).
 - Problème : 11 caméras, 28 687 points, 101 601 observations, soit 86 127 inconnues.
-- Départ : chaque caméra perturbée d'environ 1° et 2 % de la scène, chaque point d'environ 1 % ; RMS initial 32,5 px.
-- Notre LM + Schur : 32,5, puis 0,76, 0,53, 0,47, 0,38, 0,29, 0,250, 0,2471 px. Convergence en **10 itérations, 5,3 s**.
-- scipy `least_squares` (TRF, Jacobien creux) : même minimum (0,2471 px) en 25,5 s.
+- Départ : rotation de chaque caméra perturbée d'environ 1°. Bruit gaussien d'écart-type 2 % de la taille de la scène par axe sur les translations, et 1 % par axe sur les points (taille = distance moyenne au centroïde). RMS initial 32,5 px.
+- Notre LM + Schur : 32,5, puis 0,76, 0,53, 0,47, 0,38, 0,29, 0,250, 0,2471 px. Convergence en **10 itérations, environ 5 s**.
+- scipy `least_squares` (TRF, Jacobien creux par différences finies) : même minimum (0,2471 px) en 11–25 s selon la charge de la machine.
 
 **Coût du Schur** (`figures/schur_scaling.png`, 10 caméras).
 
@@ -424,7 +452,7 @@ C'est non linéaire pour deux raisons : la division par la profondeur, et la rot
 Le dense croît en n³, le Schur environ linéairement. Pour fountain (86 127 inconnues), un solveur dense est hors de portée : sa matrice ferait à elle seule 59 Go.
 
 **Pertes robustes dans le BA** (`figures/ba_robust_losses.png`).
-- Setup : 8 caméras, 250 points, σ = 0,5 px. Une fraction des observations reçoit une erreur grossière ~N(0, 40 px). 10 tirages ; erreurs médianes de rotation des caméras.
+- Setup : 8 caméras, 250 points, σ = 0,5 px. Une fraction des observations reçoit une erreur grossière ~N(0, 40 px). 10 tirages. Pour chaque tirage, on prend la moyenne de l'erreur de rotation sur les caméras ; le tableau donne la médiane sur les 10 tirages.
 
 | Observations corrompues | 0 % | 5 % | 10 % | 20 % | 30 % | 50 % |
 |---|---|---|---|---|---|---|
@@ -443,14 +471,27 @@ Lecture :
 - **« Pourquoi le BA est-il non linéaire ? »** Il y a la division perspective π(X) = (X/Z, Y/Z), et la rotation (variété SO(3)).
 - **« Pourquoi LM plutôt que Gauss-Newton ? »**
   - GN peut diverger si l'approximation linéaire est mauvaise, ou si JᵀJ est mal conditionnée (jauge, points lointains).
-  - LM ajoute λ diag(JᵀJ) : c'est une région de confiance implicite, robuste loin du minimum, et quadratique près du minimum.
+  - LM ajoute λ diag(JᵀJ) : c'est une région de confiance implicite, robuste loin du minimum. Près du minimum il se comporte comme Gauss-Newton : convergence quadratique si les résidus sont nuls au minimum, seulement linéaire ou superlinéaire sinon.
 - **« Pourquoi la structure creuse accélère-t-elle ? »** V est diagonale par blocs 3×3, donc V⁻¹ coûte O(n_p). On résout ensuite un système de taille 6n_c au lieu de 6n_c + 3n_p. Mesuré : voir `figures/schur_scaling.png`.
-- **« Jauge ? »** 7 ddl (similitude). On fixe la caméra 0 et une coordonnée de translation d'une autre caméra. Sinon JᵀJ a un noyau de dimension 7.
+- **« Jauge ? »** 7 ddl (similitude). On fixe une caméra et une coordonnée de translation d'une autre caméra. Sinon JᵀJ a un noyau de dimension 7.
 - **« Huber ou Cauchy ? »**
   - Huber est convexe : son influence est bornée mais jamais nulle, donc les outliers biaisent encore un peu.
   - Cauchy est redescendante (l'influence tend vers 0) : les outliers sont quasi ignorés, mais la fonction est non convexe et a besoin d'une bonne initialisation.
   - Mesuré : voir `figures/ba_robust_losses.png`.
 - **« Pourquoi so(3) ? »** Voir « À essayer d'abord ». Le Jacobien de la mise à jour à gauche est simplement −[RX]ₓ.
+
+---
+
+## Brique 8 — Viewer 3D
+
+Le viewer (`viewer/`, Three.js) affiche :
+- le nuage coloré (couleur du pixel SIFT dans la première vue qui observe le point) ;
+- les frustums estimés (orange) et vérité terrain (bleu) ;
+- la trajectoire des caméras.
+
+Le bouton « View through camera » place la caméra virtuelle exactement au centre C = −Rᵀt, regardant selon la 3e ligne de R. C'est une vérification visuelle directe de la pose.
+
+Le tout est exprimé dans le repère de la vérité terrain après alignement par similitude (Umeyama). C'est nécessaire, car notre reconstruction n'est définie qu'à une similitude près (brique 2).
 
 ---
 
@@ -473,7 +514,7 @@ Lecture :
 1. **(30 s) Le problème.** Montrer 3 images de fountain-P11. Question : « à partir de ces photos seulement, peut-on retrouver la scène 3D et où étaient les caméras ? »
 2. **(60 s) Le pipeline**, au tableau ou sur une slide : SIFT, puis F (8 points normalisé + RANSAC/Sampson), puis E, puis (R, t) avec cheirality, puis triangulation, puis PnP pour chaque nouvelle vue, puis bundle adjustment sur SO(3) avec Schur. Dire que le cœur est écrit à la main (NumPy).
 3. **(60 s) Viewer 3D.** Ouvrir le viewer : nuage coloré et frustums. Cliquer sur une caméra pour « regarder à travers elle ». Activer les caméras vérité terrain : elles se superposent. Annoncer les chiffres : 11/11 vues, 28 687 points, RMS 0,25 px, erreur de rotation médiane 0,037° contre la vérité terrain.
-4. **(60 s) Robustesse.** Montrer la figure « erreur vs taux d'outliers » : les moindres carrés cassent dès 10 %, RANSAC/LO tiennent jusqu'à 70 % (si le budget d'itérations suffit). Puis la figure du BA : L2 contre Huber contre Cauchy.
+4. **(60 s) Robustesse.** Montrer la figure « erreur vs taux d'outliers » : les moindres carrés cassent dès 10 %, RANSAC/MSAC/LO tiennent jusqu'à 60 % ; à 70 %, le budget d'itérations casse (40–70 % de succès seulement). Puis la figure du BA : L2 contre Huber contre Cauchy.
 5. **(30 s) Limites et suite.** Dérive de l'incrémental, donc rotation averaging. Le 5 points pour réduire le nombre d'itérations. La densification (MVS / NeRF à partir de nos poses).
 
 Questions probables juste après : voir les sections « Questions que Werman pourrait poser » ci-dessus.

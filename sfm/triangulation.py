@@ -68,10 +68,22 @@ def refine_points(Ps: list, xs: list, X0: np.ndarray, iters: int = 10, masks=Non
             g += np.einsum("nki,nk->ni", J, r)
         H += 1e-9 * np.eye(3)
         dX = np.linalg.solve(H, g[..., None])[..., 0]
-        X = X + dX
-        if np.max(np.abs(dX)) < 1e-12:
+        # descent check, per point: keep the step only where the cost decreases
+        Xn = X + dX
+        better = _point_costs(Ps, xs, Xn, masks) < _point_costs(Ps, xs, X, masks)
+        X = np.where(better[:, None], Xn, X)
+        if not better.any() or np.max(np.abs(dX[better])) < 1e-12:
             break
     return X
+
+
+def _point_costs(Ps, xs, X, masks):
+    """Per-point sum of squared reprojection errors over the observing views."""
+    c = np.zeros(len(X))
+    for P, x, m in zip(Ps, xs, masks):
+        proj, _ = _proj_and_jac(P, X)
+        c += m * np.sum((x - proj) ** 2, axis=1)
+    return c
 
 
 def reprojection_errors(P: np.ndarray, X: np.ndarray, x: np.ndarray) -> np.ndarray:

@@ -1,0 +1,7 @@
+features+matching: 173.6s, 51 verified pairs
+init pair (5,6): 7475 points rms 0.114px
+final: 11 views, 28687 points, rms 0.247px
+SfM: 70.4s, rms 0.247px, 28687 points, 101601 observations
+rotation error (deg) per view: [0.043 0.047 0.043 0.035 0.023 0.021 0.052 0.039 0.033 0.037 0.034]
+centre error (% of scene size): [0.019 0.039 0.011 0.042 0.05  0.05  0.051 0.03  0.023 0.013 0.026]
+two-view, median over 51 pairs: ours rot 0.051 deg, t 0.127 deg | OpenCV rot 0.230, t 0.257

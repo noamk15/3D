@@ -50,6 +50,7 @@ def make_scene(
     pure_rotation: bool = False,
     seed: int = 0,
     K: np.ndarray | None = None,
+    jitter: float = 0.5,
 ) -> Scene:
     rng = np.random.default_rng(seed)
     K = default_K() if K is None else K
@@ -67,7 +68,7 @@ def make_scene(
             C = np.array([0.0, 0.0, -radius])
             target = np.array([radius * np.sin(a), 0.3 * np.sin(2 * a), 0.0])
         else:
-            C = np.array([radius * np.sin(a), 0.5 * rng.uniform(-1, 1), -radius * np.cos(a)])
+            C = np.array([radius * np.sin(a), jitter * rng.uniform(-1, 1), -radius * np.cos(a)])
             target = 0.2 * rng.normal(size=3)
         R, t = look_at(C, target)
         Rs.append(R)

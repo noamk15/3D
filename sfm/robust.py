@@ -107,10 +107,16 @@ def ransac_fundamental(x1, x2, threshold: float = 1.0, method: str = "ransac",
     r = ransac(len(x1), fit, res, 8, threshold, method, confidence,
                max_iters=max_iters, seed=seed)
     if refit and r.inliers.sum() >= 8:
-        F = eight_point(x1[r.inliers], x2[r.inliers])
-        inl = sampson_error(F, x1, x2) < threshold**2
-        if inl.sum() >= r.inliers.sum():
-            r = RansacResult(F, inl, r.iterations, r.time_s)
+        # The minimal-sample model is noisy (fit to 8 points only): re-estimate
+        # by least squares on ALL inliers, re-classify, repeat once.
+        inl = r.inliers
+        for _ in range(2):
+            F = eight_point(x1[inl], x2[inl])
+            new_inl = sampson_error(F, x1, x2) < threshold**2
+            if new_inl.sum() < 8:
+                break
+            inl = new_inl
+        r = RansacResult(F, inl, r.iterations, r.time_s)
     return r
 
 

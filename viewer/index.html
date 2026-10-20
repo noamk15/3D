@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>body{margin:0}</style>
+</head>
+<body>
+<title>Fountain-P11 Reconstruction</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&display=swap">
+<style>
+/* Layout: full-bleed WebGL scene, one instrument panel docked top-left (bottom sheet on phones).
+   Single deliberate dark look: a point cloud reads best on a near-black field. */
+:root {
+  color-scheme: dark;
+  --bg: #0d0f12;
+  --panel: rgba(20, 23, 28, 0.86);
+  --line: #2a2f37;
+  --fg: #e8e6e1;
+  --muted: #9aa0a8;
+  --est: #ffb547;      /* estimated cameras */
+  --gt: #5fb3ff;       /* ground-truth cameras */
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--mono); font-size: 12px; overflow: hidden; }
+#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.panel {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 16px);
+  left: max(16px, env(safe-area-inset-left, 0px));
+  width: min(320px, calc(100vw - 32px));
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  backdrop-filter: blur(8px); padding: 14px 16px; display: grid; gap: 12px;
+}
+h1 { font-family: var(--display); font-weight: 600; font-size: 20px; margin: 0; letter-spacing: 0.01em; text-wrap: balance; }
+.sub { color: var(--muted); margin: 2px 0 0; line-height: 1.45; }
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin: 0; }
+.stats div { display: grid; gap: 1px; }
+.stats dt { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+.stats dd { margin: 0; font-size: 15px; font-variant-numeric: tabular-nums; }
+.controls { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+input[type=checkbox] { accent-color: var(--est); }
+input[type=range] { flex: 1; accent-color: var(--est); }
+.key { display: inline-block; width: 10px; height: 10px; border: 2px solid; border-radius: 2px; }
+.cams { display: flex; flex-wrap: wrap; gap: 4px; }
+.cams button {
+  font: inherit; color: var(--fg); background: transparent; border: 1px solid var(--line);
+  border-radius: 4px; padding: 3px 7px; cursor: pointer; font-variant-numeric: tabular-nums;
+}
+.cams button:hover, .cams button:focus-visible { border-color: var(--est); color: var(--est); outline: none; }
+.cams .lbl { width: 100%; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+.hint { color: var(--muted); font-size: 11px; margin: 0; }
+.toggle { display: none; }
+@media (max-width: 560px) {
+  .panel { top: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); max-height: 46vh; overflow-y: auto; }
+}
+</style>
+
+<canvas id="c" aria-label="3D point cloud with camera frustums"></canvas>
+<section class="panel" aria-label="Reconstruction details">
+  <header>
+    <h1>Fountain-P11, reconstructed</h1>
+    <p class="sub">Incremental SfM from scratch: 8-point + RANSAC, PnP, bundle adjustment on SO(3). Shown in the ground-truth frame after a similarity alignment.</p>
+  </header>
+  <dl class="stats">
+    <div><dt>Views</dt><dd id="s-views">–</dd></div>
+    <div><dt>3D points</dt><dd id="s-pts">–</dd></div>
+    <div><dt>RMS reprojection</dt><dd id="s-rms">–</dd></div>
+    <div><dt>Median rot. error</dt><dd id="s-rot">–</dd></div>
+  </dl>
+  <div class="controls">
+    <label for="orbit"><input type="checkbox" id="orbit" checked> Auto-orbit</label>
+    <label for="est"><input type="checkbox" id="est" checked><span class="key" style="border-color:var(--est)"></span> Estimated cameras</label>
+    <label for="gt"><input type="checkbox" id="gt"><span class="key" style="border-color:var(--gt)"></span> Ground-truth cameras</label>
+    <label for="size">Point size <input type="range" id="size" min="1" max="8" step="0.5" value="2.5"></label>
+    <div class="cams" id="cams"><span class="lbl">View through camera</span></div>
+    <p class="hint">Drag to rotate, scroll or pinch to zoom, right-drag to pan.</p>
+  </div>
+</section>
+
+<script src="scene.js"></script>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const S = window.SCENE;
+const css = getComputedStyle(document.documentElement);
+const EST = css.getPropertyValue("--est").trim(), GT = css.getPropertyValue("--gt").trim();
+
+document.getElementById("s-views").textContent = S.cameras.length;
+document.getElementById("s-pts").textContent = (S.points.length / 3).toLocaleString("en-US");
+document.getElementById("s-rms").textContent = S.meta.rms_px + " px";
+document.getElementById("s-rot").textContent = S.meta.median_rot_err_deg + "°";
+
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(css.getPropertyValue("--bg").trim());
+
+// --- points --------------------------------------------------------------
+const pos = new Float32Array(S.points);
+const col = new Float32Array(S.colors.length);
+for (let i = 0; i < col.length; i++) col[i] = S.colors[i] / 255;
+const g = new THREE.BufferGeometry();
+g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+const pmat = new THREE.PointsMaterial({ size: 2.5, vertexColors: true, sizeAttenuation: false });
+scene.add(new THREE.Points(g, pmat));
+
+// robust centre / extent (median, 90th percentile)
+const n = pos.length / 3, xs = [], ys = [], zs = [];
+for (let i = 0; i < n; i++) { xs.push(pos[3*i]); ys.push(pos[3*i+1]); zs.push(pos[3*i+2]); }
+const med = a => { const b = [...a].sort((p, q) => p - q); return b[b.length >> 1]; };
+const center = new THREE.Vector3(med(xs), med(ys), med(zs));
+const dists = xs.map((_, i) => Math.hypot(xs[i]-center.x, ys[i]-center.y, zs[i]-center.z)).sort((a, b) => a - b);
+const extent = dists[Math.floor(0.9 * dists.length)];
+
+// world "up" = minus the mean camera y axis (image y points down)
+const up = new THREE.Vector3();
+S.cameras.forEach(c => up.sub(new THREE.Vector3(...c.R[1])));
+up.normalize();
+
+// --- frustums ---------------------------------------------------------------
+const [fx, fy, cx, cy] = [S.K[0][0], S.K[1][1], S.K[0][2], S.K[1][2]];
+function frustum(cam, color, depth) {
+  const C = new THREE.Vector3(...cam.C);
+  const ax = [0, 1, 2].map(r => new THREE.Vector3(...cam.R[r]));
+  const corner = (u, v) => C.clone()
+    .addScaledVector(ax[0], depth * (u - cx) / fx)
+    .addScaledVector(ax[1], depth * (v - cy) / fy)
+    .addScaledVector(ax[2], depth);
+  const k = [corner(0, 0), corner(S.width, 0), corner(S.width, S.height), corner(0, S.height)];
+  const v = [];
+  k.forEach((p, i) => { v.push(C, p, p, k[(i + 1) % 4]); });
+  // small "up" tick on the top edge so orientation is readable
+  const mid = k[0].clone().add(k[1]).multiplyScalar(0.5);
+  v.push(mid, mid.clone().addScaledVector(ax[1], -0.25 * depth));
+  const geo = new THREE.BufferGeometry().setFromPoints(v);
+  return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color }));
+}
+const depth = 0.12 * extent;
+const estGroup = new THREE.Group(), gtGroup = new THREE.Group();
+S.cameras.forEach(c => estGroup.add(frustum(c, EST, depth)));
+(S.gt_cameras || []).forEach(c => gtGroup.add(frustum(c, GT, depth)));
+// camera path
+estGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(
+  [...S.cameras].sort((a, b) => a.id - b.id).map(c => new THREE.Vector3(...c.C))),
+  new THREE.LineBasicMaterial({ color: EST, transparent: true, opacity: 0.35 })));
+gtGroup.visible = false;
+scene.add(estGroup, gtGroup);
+
+// --- view ----------------------------------------------------------------------
+const camera = new THREE.PerspectiveCamera(50, 1, extent * 0.01, extent * 50);
+camera.up.copy(up);
+const meanC = new THREE.Vector3();
+S.cameras.forEach(c => meanC.add(new THREE.Vector3(...c.C)));
+meanC.divideScalar(S.cameras.length);
+const back = meanC.clone().sub(center).normalize();
+camera.position.copy(center).addScaledVector(back, extent * 2.6).addScaledVector(up, extent * 0.9);
+const controls = new OrbitControls(camera, canvas);
+controls.target.copy(center);
+controls.enableDamping = true;
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+controls.autoRotate = !reduce;
+controls.autoRotateSpeed = 0.8;
+document.getElementById("orbit").checked = !reduce;
+
+document.getElementById("orbit").onchange = e => controls.autoRotate = e.target.checked;
+document.getElementById("est").onchange = e => estGroup.visible = e.target.checked;
+document.getElementById("gt").onchange = e => gtGroup.visible = e.target.checked;
+document.getElementById("size").oninput = e => pmat.size = +e.target.value;
+
+// fly to a camera: look exactly through it
+let anim = null;
+const camsEl = document.getElementById("cams");
+[...S.cameras].sort((a, b) => a.id - b.id).forEach(c => {
+  const b = document.createElement("button");
+  b.textContent = String(c.id).padStart(2, "0");
+  b.title = `Look through camera ${c.id}`;
+  b.onclick = () => {
+    controls.autoRotate = false;
+    document.getElementById("orbit").checked = false;
+    const C = new THREE.Vector3(...c.C), z = new THREE.Vector3(...c.R[2]);
+    const tgt = C.clone().addScaledVector(z, center.distanceTo(C));
+    anim = { p0: camera.position.clone(), t0: controls.target.clone(), p1: C, t1: tgt, s: performance.now() };
+  };
+  camsEl.appendChild(b);
+});
+
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+addEventListener("resize", resize);
+resize();
+
+renderer.setAnimationLoop(now => {
+  if (anim) {
+    let k = Math.min(1, (now - anim.s) / (reduce ? 1 : 1200));
+    k = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    camera.position.lerpVectors(anim.p0, anim.p1, k);
+    controls.target.lerpVectors(anim.t0, anim.t1, k);
+    if (k >= 1) anim = null;
+  }
+  controls.update();
+  renderer.render(scene, camera);
+});
+</script>
+
+</body>
+</html>

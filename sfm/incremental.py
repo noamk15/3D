@@ -233,7 +233,8 @@ def incremental_sfm(K, kps, matches, ba_loss="huber", ba_iters=20, min_pnp_inlie
         rec.log.append(f"view {v}: PnP {inl.sum()}/{len(inl)} inliers, +{n_new} points, "
                        f"BA rms {resba.rms_history[-1]:.3f}px, removed {nrem} obs")
         if verbose:
-            print(rec.log[-1])
+            import resource
+            print(rec.log[-1], f"[maxrss {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024} MB]", flush=True)
 
     # ---- final BA ------------------------------------------------------------
     prob, views, tids = rec.ba_problem(tracks, kps)

@@ -31,7 +31,7 @@ def pnp_dlt(X: np.ndarray, x: np.ndarray, K: np.ndarray):
     A[0::2, 8:12] = -y[:, [0]] * Xh
     A[1::2, 4:8] = Xh
     A[1::2, 8:12] = -y[:, [1]] * Xh
-    _, _, Vt = np.linalg.svd(A)
+    _, _, Vt = np.linalg.svd(A, full_matrices=A.shape[0] < A.shape[1])  # thin SVD: never build the N x N U
     M = Vt[-1].reshape(3, 4) @ T
     if np.linalg.det(M[:, :3]) < 0:
         M = -M

@@ -63,7 +63,7 @@ def eight_point(x1: np.ndarray, x2: np.ndarray, normalize: bool = True,
         T1 = T2 = np.eye(3)
         x1n, x2n = x1, x2
     A = _design_matrix(x1n, x2n)
-    _, _, Vt = np.linalg.svd(A)
+    _, _, Vt = np.linalg.svd(A, full_matrices=A.shape[0] < A.shape[1])  # thin SVD: never build the N x N U
     F = Vt[-1].reshape(3, 3)
     if rank2:
         F = enforce_rank2(F)

@@ -107,15 +107,18 @@ def project_to_SO3(M: np.ndarray) -> np.ndarray:
 # Error metrics
 # ---------------------------------------------------------------------------
 def rotation_error_deg(R1: np.ndarray, R2: np.ndarray) -> float:
-    """Geodesic angle between two rotations, in degrees."""
-    c = np.clip((np.trace(R1.T @ R2) - 1) / 2, -1.0, 1.0)
-    return float(np.degrees(np.arccos(c)))
+    """Geodesic angle between two rotations, in degrees.
+    atan2(sin, cos) instead of arccos(cos): arccos is ill-conditioned near 0."""
+    M = R1.T @ R2
+    c = (np.trace(M) - 1) / 2
+    s = 0.5 * np.linalg.norm([M[2, 1] - M[1, 2], M[0, 2] - M[2, 0], M[1, 0] - M[0, 1]])
+    return float(np.degrees(np.arctan2(s, c)))
 
 
 def direction_error_deg(t1: np.ndarray, t2: np.ndarray) -> float:
     """Angle between two directions (translation known up to scale), degrees."""
-    c = np.dot(t1, t2) / (np.linalg.norm(t1) * np.linalg.norm(t2))
-    return float(np.degrees(np.arccos(np.clip(c, -1.0, 1.0))))
+    a, b = t1 / np.linalg.norm(t1), t2 / np.linalg.norm(t2)
+    return float(np.degrees(np.arctan2(np.linalg.norm(np.cross(a, b)), np.dot(a, b))))
 
 
 def random_rotation(rng: np.random.Generator) -> np.ndarray:

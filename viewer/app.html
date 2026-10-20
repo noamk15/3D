@@ -49,7 +49,8 @@ input[type=range] { flex: 1; accent-color: var(--est); }
 .hint { color: var(--muted); font-size: 11px; margin: 0; }
 .toggle { display: none; }
 @media (max-width: 560px) {
-  .panel { top: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); max-height: 46vh; overflow-y: auto; }
+  .panel { top: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); max-height: 46vh; overflow-y: auto; gap: 10px; }
+  .sub, .hint { display: none; }
 }
 </style>
 
@@ -160,7 +161,7 @@ const camera = new THREE.PerspectiveCamera(50, 1, camDist * 0.005, camDist * 50)
 camera.up.copy(up);
 // start behind and above the camera arc, looking at the scene
 const back = meanC.clone().sub(center).normalize();
-camera.position.copy(center).addScaledVector(back, camDist * 1.9).addScaledVector(up, camDist * 0.55);
+camera.position.copy(center).addScaledVector(back, camDist * 2.5).addScaledVector(up, camDist * 0.7);
 const controls = new OrbitControls(camera, canvas);
 controls.target.copy(center);
 controls.enableDamping = true;

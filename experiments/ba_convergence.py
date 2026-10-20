@@ -69,10 +69,11 @@ def schur_scaling(n_cams=10):
         s = make_scene(n_points=n, n_cams=n_cams, arc_deg=80, seed=0)
         nu = 6 * n_cams + 3 * n
         # full system (dense): what you would do without exploiting sparsity
-        if nu <= 3000:
+        if nu <= 6000:
             H = np.random.default_rng(0).normal(size=(nu, nu))
             H = H @ H.T + nu * np.eye(nu)
             g = np.ones(nu)
+            np.linalg.solve(H, g)                      # warm-up
             t0 = time.perf_counter()
             for _ in range(3):
                 np.linalg.solve(H, g)
@@ -83,13 +84,16 @@ def schur_scaling(n_cams=10):
         ci = np.repeat(np.arange(n_cams), n)
         pi_ = np.tile(np.arange(n), n_cams)
         prob = BAProblem(s.K, s.Rs, s.ts, s.X + 0.01, ci, pi_, np.concatenate(s.obs))
-        t0 = time.perf_counter()
-        ba_lm_schur(prob, iters=1)
-        t_schur.append(time.perf_counter() - t0)
+        ts_ = []
+        for _ in range(3):
+            t0 = time.perf_counter()
+            ba_lm_schur(prob, iters=1)
+            ts_.append(time.perf_counter() - t0)
+        t_schur.append(min(ts_))
         print(f"n_points {n}: unknowns {nu}, dense solve {t_full[-1]:.4f}s, Schur LM iteration {t_schur[-1]:.4f}s")
     fig, ax = plt.subplots(figsize=(6.5, 3.8))
     x = np.array(pts)
-    line(ax, x, np.array(t_full), 1, "Dense solve of the full normal equations")
+    line(ax, x, np.array(t_full), 1, "Dense solve of the full normal equations (solve only)")
     line(ax, x, np.array(t_schur), 0, "Our full LM iteration with Schur complement")
     ax.set(title=f"Cost per iteration vs. number of points ({n_cams} cameras)",
            xlabel="number of 3D points", ylabel="seconds", xscale="log", yscale="log")

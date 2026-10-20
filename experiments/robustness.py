@@ -180,6 +180,8 @@ def main():
         K, kps, gts = C["K"], C["kps"], C["gts"]
         i, j = 4, 5
         a, b = C["matches"][(i, j)]
+        sub = np.random.default_rng(0).choice(len(a), size=min(1000, len(a)), replace=False)
+        a, b = a[sub], b[sub]        # 1000 verified matches keep run time reasonable
         Rgt, tgt = relative_pose(*gts[i], *gts[j])
 
         def real(ratio, trial):

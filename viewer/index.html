@@ -57,7 +57,8 @@ input[type=range] { flex: 1; accent-color: var(--est); }
 .hint { color: var(--muted); font-size: 11px; margin: 0; }
 .toggle { display: none; }
 @media (max-width: 560px) {
-  .panel { top: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); max-height: 46vh; overflow-y: auto; }
+  .panel { top: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); max-height: 46vh; overflow-y: auto; gap: 10px; }
+  .sub, .hint { display: none; }
 }
 </style>
 
@@ -119,13 +120,11 @@ g.setAttribute("color", new THREE.BufferAttribute(col, 3));
 const pmat = new THREE.PointsMaterial({ size: 2.5, vertexColors: true, sizeAttenuation: false });
 scene.add(new THREE.Points(g, pmat));
 
-// robust centre / extent (median, 90th percentile)
+// robust centre (coordinate-wise median)
 const n = pos.length / 3, xs = [], ys = [], zs = [];
 for (let i = 0; i < n; i++) { xs.push(pos[3*i]); ys.push(pos[3*i+1]); zs.push(pos[3*i+2]); }
 const med = a => { const b = [...a].sort((p, q) => p - q); return b[b.length >> 1]; };
 const center = new THREE.Vector3(med(xs), med(ys), med(zs));
-const dists = xs.map((_, i) => Math.hypot(xs[i]-center.x, ys[i]-center.y, zs[i]-center.z)).sort((a, b) => a - b);
-const extent = dists[Math.floor(0.9 * dists.length)];
 
 // world "up" = minus the mean camera y axis (image y points down)
 const up = new THREE.Vector3();
@@ -150,7 +149,11 @@ function frustum(cam, color, depth) {
   const geo = new THREE.BufferGeometry().setFromPoints(v);
   return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color }));
 }
-const depth = 0.12 * extent;
+const meanC = new THREE.Vector3();
+S.cameras.forEach(c => meanC.add(new THREE.Vector3(...c.C)));
+meanC.divideScalar(S.cameras.length);
+const camDist = meanC.distanceTo(center);
+const depth = 0.07 * camDist;
 const estGroup = new THREE.Group(), gtGroup = new THREE.Group();
 S.cameras.forEach(c => estGroup.add(frustum(c, EST, depth)));
 (S.gt_cameras || []).forEach(c => gtGroup.add(frustum(c, GT, depth)));
@@ -162,13 +165,11 @@ gtGroup.visible = false;
 scene.add(estGroup, gtGroup);
 
 // --- view ----------------------------------------------------------------------
-const camera = new THREE.PerspectiveCamera(50, 1, extent * 0.01, extent * 50);
+const camera = new THREE.PerspectiveCamera(50, 1, camDist * 0.005, camDist * 50);
 camera.up.copy(up);
-const meanC = new THREE.Vector3();
-S.cameras.forEach(c => meanC.add(new THREE.Vector3(...c.C)));
-meanC.divideScalar(S.cameras.length);
+// start behind and above the camera arc, looking at the scene
 const back = meanC.clone().sub(center).normalize();
-camera.position.copy(center).addScaledVector(back, extent * 2.6).addScaledVector(up, extent * 0.9);
+camera.position.copy(center).addScaledVector(back, camDist * 2.5).addScaledVector(up, camDist * 0.7);
 const controls = new OrbitControls(camera, canvas);
 controls.target.copy(center);
 controls.enableDamping = true;

@@ -66,18 +66,27 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default="data/fountain-P11")
     ap.add_argument("--scale", type=float, default=0.5)
-    ap.add_argument("--contrast", type=float, default=0.01, help="SIFT contrast threshold")
+    ap.add_argument("--contrast", type=float, default=0.02, help="SIFT contrast threshold")
     ap.add_argument("--prefix", default="fountain")
+    ap.add_argument("--reuse-matches", action="store_true")
     args = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
 
     imgs, K, gts, _ = load_strecha(args.data, args.scale)
     h, w = imgs[0].shape[:2]
-    t0 = time.perf_counter()
-    kps, descs, cols = sift_features(imgs, contrast_threshold=args.contrast)
-    print('keypoints per image:', [len(k) for k in kps])
-    matches, stats = match_all_pairs(kps, descs, verbose=False)
-    t_feat = time.perf_counter() - t0
+    import pickle
+    mcache = os.path.join(OUT, f"{args.prefix}_matches.pkl")
+    if args.reuse_matches and os.path.exists(mcache):
+        with open(mcache, "rb") as f:
+            kps, cols, matches, t_feat = pickle.load(f)
+    else:
+        t0 = time.perf_counter()
+        kps, descs, cols = sift_features(imgs, contrast_threshold=args.contrast)
+        print('keypoints per image:', [len(k) for k in kps], flush=True)
+        matches, stats = match_all_pairs(kps, descs, verbose=False)
+        t_feat = time.perf_counter() - t0
+        with open(mcache, "wb") as f:
+            pickle.dump((kps, cols, matches, t_feat), f)
     print(f"features+matching: {t_feat:.1f}s, {len(matches)} verified pairs")
 
     t0 = time.perf_counter()

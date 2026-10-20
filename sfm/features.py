@@ -62,7 +62,9 @@ def ratio_test_matches(d1, d2, ratio: float = 0.8, mutual: bool = True):
     """Lowe ratio test: keep a match only if the best neighbour is clearly
     better than the second best (d1/d2 < ratio) -> rejects ambiguous matches
     (repeated textures). Optional mutual (cross-check) consistency."""
-    bf = cv2.BFMatcher(cv2.NORM_L2)
+    # FLANN (randomized kd-trees): approximate nearest neighbours, much faster
+    # than brute force for ~10^4 descriptors per image.
+    bf = cv2.FlannBasedMatcher(dict(algorithm=1, trees=5), dict(checks=64))
     m12 = bf.knnMatch(d1, d2, k=2)
     good = {}
     for m in m12:

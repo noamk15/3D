@@ -1,0 +1,5 @@
+numpy>=1.24
+scipy>=1.10
+matplotlib>=3.7
+opencv-python>=4.8   # only for: image I/O, SIFT, and baseline comparison
+pytest>=7.4
